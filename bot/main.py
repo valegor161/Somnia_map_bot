@@ -1,29 +1,9 @@
 import logging
 import os
-from threading import Thread
-from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from database import init_db, save_user, save_dream, get_dreams, clear_dreams, get_all_dreams_text, user_exists
 from llm import analyze_dream, is_dream_related
-
-# Flask-сервер для health-check (нужен Render и аналогичным платформам)
-flask_app = Flask(__name__)
-
-@flask_app.route("/")
-def home():
-    return "Бот 'Карта сновидений' работает!"
-
-@flask_app.route("/health")
-def health():
-    return "OK", 200
-
-def run_flask():
-    port = int(os.environ.get("PORT", 5000))
-    flask_app.run(host="0.0.0.0", port=port)
-
-flask_thread = Thread(target=run_flask, daemon=True)
-flask_thread.start()
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -154,7 +134,7 @@ async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
 
-    filename = f"dreams_{user_id}.txt"
+    filename = f"/tmp/dreams_{user_id}.txt"
     with open(filename, "w", encoding="utf-8") as f:
         f.write(text)
 
@@ -208,9 +188,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
 
-    thinking_msg = await update.message.reply_text(
-        "🔮 Анализирую ваш сон...",
-    )
+    thinking_msg = await update.message.reply_text("🔮 Анализирую ваш сон...")
 
     dream_id = save_dream(user.id, text, "")
 
@@ -259,7 +237,38 @@ def split_message(text: str, max_len: int = 4000) -> list[str]:
         text = text[split_at:].lstrip("\n")
     return chunks
 
+def build_application(token: str) -> Application:
+    app = Application.builder().token(token).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("history", history))
+    app.add_handler(CommandHandler("export", export_command))
+    app.add_handler(CommandHandler("clear", clear_command))
+    app.add_handler(CallbackQueryHandler(clear_callback, pattern="^(clear_|do_start)"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    return app
+
 def main() -> None:
+    from threading import Thread
+    from flask import Flask as FlaskApp
+
+    flask_app = FlaskApp(__name__)
+
+    @flask_app.route("/")
+    def home():
+        return "Бот 'Карта сновидений' работает!"
+
+    @flask_app.route("/health")
+    def health():
+        return "OK", 200
+
+    def run_flask():
+        port = int(os.environ.get("PORT", 5000))
+        flask_app.run(host="0.0.0.0", port=port)
+
+    flask_thread = Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     init_db()
     logger.info("Database initialized")
@@ -275,7 +284,6 @@ def main() -> None:
         )
 
     app = Application.builder().token(token).post_init(post_init).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("history", history))

@@ -2,12 +2,8 @@ import os
 import sqlite3
 from datetime import datetime
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-USE_POSTGRES = DATABASE_URL is not None
-
-if USE_POSTGRES:
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
+POSTGRES_URL = os.environ.get("POSTGRES_URL")
+USE_POSTGRES = POSTGRES_URL is not None
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "dreams.db")
 
@@ -15,7 +11,8 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "dreams.db")
 # ── PostgreSQL ────────────────────────────────────────────────────────────────
 
 def _pg_conn():
-    return psycopg2.connect(DATABASE_URL)
+    import psycopg2
+    return psycopg2.connect(POSTGRES_URL)
 
 def _pg_init():
     with _pg_conn() as conn:
@@ -74,6 +71,7 @@ def _pg_save_dream(user_id: int, dream_text: str, interpretation_text: str, drea
     return new_id
 
 def _pg_get_dreams(user_id: int, limit: int = 20) -> list[dict]:
+    from psycopg2.extras import RealDictCursor
     with _pg_conn() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
